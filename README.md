@@ -7,9 +7,9 @@ Hands** untuk deteksi 2 tangan (21 landmark/tangan), dan render overlay
 Fitur:
 
 - Deteksi dua tangan sekaligus (kiri & kanan), 21 landmark per tangan.
-- Mesh dinamis transparan (wireframe putih, alpha ~20%) dari **triangulasi
-  Delaunay** atas gabungan titik kedua tangan → mesh otomatis "menjembatani"
-  kedua tangan seperti jaring laba-laba holografik.
+- Mesh dinamis transparan dari **triangulasi Delaunay** atas gabungan titik
+  kedua tangan, sekarang dirender sebagai panel segitiga/kaca bertekstur halus
+  dengan edge glow tipis — bukan lagi garis putih dominan seperti jaring laba-laba.
 - Skeleton per-tangan (tulang jari) berwarna berbeda kiri/kanan.
 - Titik landmark berupa dot glowing.
 - Efek **glow** dibuat lewat fragment shader (radial/linear falloff per
@@ -20,7 +20,7 @@ Fitur:
 - HUD: FPS + label tangan + koordinat (x, y) ternormalisasi tiap titik.
 - Koreksi orientasi kamera: mirror, rotasi 0/90/180/270, dan vertical flip untuk mengatasi kamera yang tampil terbalik.
 - Debug gesture sederhana: jarak pinch ibu jari–telunjuk ditampilkan di HUD sebagai dasar pengembangan gesture recognition.
-- Mesh lebih stabil dengan pemangkasan edge Delaunay yang terlalu panjang agar tidak muncul garis liar ketika tangan berjauhan.
+- Mesh lebih stabil dengan pemangkasan edge/segitiga Delaunay yang terlalu panjang agar tidak muncul garis liar ketika tangan berjauhan.
 - Target 30–60 FPS pada laptop modern (GPU terintegrasi sudah cukup, karena
   geometri sangat ringan: maksimum 42 titik).
 
@@ -131,7 +131,7 @@ Webcam (BGR) → orientasi kamera (rotasi/flip/mirror) + RGB
              → HandTracker.process()        [MediaPipe: hingga 2 tangan, 21 landmark]
              → LandmarkFilter.smooth_hand() [One Euro Filter per sumbu x,y,z]
              → MeshGenerator.build()        [Delaunay triangulation (scipy) + skeleton]
-             → Renderer.render()            [moderngl: background, glow lines, glow points, HUD]
+             → Renderer.render()            [moderngl: background, textured panels, glow points, HUD]
              → glfw.swap_buffers()
 ```
 
@@ -155,10 +155,11 @@ mulus dan konsisten di semua platform.
 
 `MeshGenerator` menggabungkan **seluruh titik dari kedua tangan** menjadi
 satu awan titik, lalu menjalankan `scipy.spatial.Delaunay` sekali atas
-gabungan tersebut. Karena triangulasi dihitung atas gabungan titik, tepi-tepi
+gabungan tersebut. Karena triangulasi dihitung atas gabungan titik, bidang
 segitiga secara alami akan menjembatani sisi-sisi tangan yang saling
-berdekatan — inilah yang menghasilkan efek "jaring holografik" yang
-menghubungkan kedua tangan seperti pada video referensi.
+berdekatan. Renderer kemudian mengisi segitiga itu sebagai panel transparan
+bertekstur/noise halus dengan outline tipis, sehingga hasilnya lebih mirip
+lembaran hologram/kaca seperti contoh, bukan kumpulan garis putih.
 
 ## Konfigurasi
 
@@ -169,9 +170,11 @@ di sana untuk menyesuaikan tampilan tanpa menyentuh kode rendering.
 Beberapa yang paling sering ingin diubah:
 
 ```python
-mesh_alpha: float = 0.20            # transparansi mesh wireframe (~20%)
+mesh_panel_alpha: float = 0.23     # transparansi bidang/panel segitiga hologram
+mesh_panel_grain_scale: float = 720.0 # kepadatan tekstur/noise panel
+mesh_alpha: float = 0.07            # edge glow tipis; kecil agar tidak seperti jaring putih
 mesh_glow_power: float = 3.0        # makin besar -> glow makin tipis/fokus
-max_mesh_edge_length: float = 0.38    # pangkas garis Delaunay yang terlalu panjang
+max_mesh_edge_length: float = 0.38  # pangkas garis/segitiga Delaunay yang terlalu panjang
 skeleton_line_width_px: float = 3.2
 point_radius_px: float = 6.5
 one_euro_mincutoff: float = 1.2     # makin kecil -> makin halus tapi makin lag
@@ -194,8 +197,22 @@ one_euro_beta: float = 0.35         # makin besar -> makin responsif saat gerak 
 - Upload tekstur background dan HUD dibuat konsisten dengan UV renderer sehingga tampilan tidak lagi upside down.
 - Ditambahkan pipeline orientasi kamera terpadu sebelum tracking/rendering: rotasi 0/90/180/270 (`R`), vertical flip (`T`), dan mirror (`M`).
 - Label `Left`/`Right` otomatis ditukar saat mirror aktif supaya warna dan label tangan tetap intuitif pada tampilan cermin.
-- Mesh Delaunay sekarang memangkas edge yang melebihi `Config.max_mesh_edge_length`, sehingga efek hologram lebih rapi dan stabil.
+- Mesh Delaunay sekarang memangkas edge/segitiga yang melebihi `Config.max_mesh_edge_length`, sehingga efek hologram lebih rapi dan stabil.
 - HUD menampilkan status orientasi kamera dan metrik pinch ibu jari–telunjuk per tangan untuk mempercepat eksperimen gesture recognition.
+
+
+### Changelog Visual Panel Hologram
+
+#### Sebelum penyempurnaan visual
+
+- Mesh utama masih terasa seperti jaring laba-laba karena yang dominan adalah garis-garis putih dari edge Delaunay.
+- Area antar-titik belum punya tekstur/panel, sehingga tidak menyerupai bidang hologram transparan seperti referensi.
+
+#### Sesudah penyempurnaan visual
+
+- Mesh sekarang diisi panel segitiga transparan dengan procedural grain/noise dan scanline halus dari shader GLSL.
+- Garis edge dibuat jauh lebih tipis dan transparan, hanya sebagai outline/glow pendukung agar bentuk tetap terbaca.
+- Segitiga Delaunay yang terlalu besar ikut dipangkas, bukan hanya edge-nya, supaya panel tidak membentang liar saat tangan terlalu jauh.
 
 ## Troubleshooting
 

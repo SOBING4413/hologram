@@ -5,8 +5,8 @@ Modern OpenGL (moderngl / GLSL) renderer for the hand-mesh hologram effect.
 
 Render order every frame:
     1. Webcam frame as a full-screen tinted/darkened background quad.
-    2. Delaunay wireframe mesh connecting both hands (thin white glow,
-       ~20% alpha), additive blending.
+    2. Delaunay mesh as frosted translucent textured panels plus very subtle
+       edge highlights.
     3. Per-hand skeleton bones (thicker glow, colored per hand), additive
        blending.
     4. Landmark points (glowing dots), additive blending.
@@ -45,6 +45,8 @@ class Renderer:
         # ---- Programs ---------------------------------------------------- #
         self.bg_prog = self.ctx.program(vertex_shader=shader.BACKGROUND_VERTEX,
                                          fragment_shader=shader.BACKGROUND_FRAGMENT)
+        self.panel_prog = self.ctx.program(vertex_shader=shader.MESH_PANEL_VERTEX,
+                                            fragment_shader=shader.MESH_PANEL_FRAGMENT)
         self.line_prog = self.ctx.program(vertex_shader=shader.LINE_VERTEX,
                                            fragment_shader=shader.LINE_FRAGMENT)
         self.point_prog = self.ctx.program(vertex_shader=shader.POINT_VERTEX,
@@ -52,6 +54,7 @@ class Renderer:
         self.overlay_prog = self.ctx.program(vertex_shader=shader.OVERLAY_VERTEX,
                                               fragment_shader=shader.OVERLAY_FRAGMENT)
 
+        self.panel_prog["u_proj"].write(self._proj.tobytes())
         self.line_prog["u_proj"].write(self._proj.tobytes())
         self.point_prog["u_proj"].write(self._proj.tobytes())
 
@@ -86,6 +89,7 @@ class Renderer:
     def resize(self, width: int, height: int):
         self.width, self.height = width, height
         self._proj = ortho_matrix(0, width, height, 0)
+        self.panel_prog["u_proj"].write(self._proj.tobytes())
         self.line_prog["u_proj"].write(self._proj.tobytes())
         self.point_prog["u_proj"].write(self._proj.tobytes())
 
@@ -106,10 +110,15 @@ class Renderer:
 
         self._draw_background(frame_rgb)
 
-        # Additive blending for the glowing hologram elements
-        self.ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE
-
         points_px = self._points_to_pixels(mesh["points"])
+
+        # Standard alpha first for the frosted/glass-like filled mesh surface.
+        self.ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
+        if self.cfg.mesh_panel_enabled and self.cfg.mesh_panel_alpha > 0.0 and len(mesh["triangles"]) > 0:
+            self._draw_mesh_panels(points_px, mesh["points"], mesh["triangles"])
+
+        # Additive blending for subtle glowing hologram edges/elements.
+        self.ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE
 
         if self.cfg.mesh_alpha > 0.0 and len(mesh["edges"]) > 0:
             self._draw_lines(points_px, mesh["edges"],
@@ -131,7 +140,7 @@ class Renderer:
 
     def release(self):
         for obj in (self._quad_vbo, self.cam_tex, self.overlay_tex,
-                    self.bg_prog, self.line_prog, self.point_prog, self.overlay_prog,
+                    self.bg_prog, self.panel_prog, self.line_prog, self.point_prog, self.overlay_prog,
                     self._bg_vao, self._overlay_vao):
             try:
                 obj.release()
@@ -160,6 +169,43 @@ class Renderer:
         px[:, 0] = points[:, 0] * self.width
         px[:, 1] = points[:, 1] * self.height
         return px
+
+
+    def _build_panel_geometry(self, points_px: np.ndarray, points_norm: np.ndarray,
+                              triangles: np.ndarray) -> np.ndarray:
+        """Each Delaunay triangle becomes one textured translucent panel.
+
+        Layout: pos.x, pos.y, uv.x, uv.y, bary.x, bary.y, bary.z. The
+        barycentric coordinate lets the fragment shader add a soft, clean
+        triangle border without returning to the old spider-web look.
+        """
+        if len(triangles) == 0:
+            return np.zeros((0, 7), dtype="f4")
+
+        bary = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+        verts = np.empty((len(triangles) * 3, 7), dtype="f4")
+        for k, tri in enumerate(triangles):
+            for corner, idx in enumerate(tri):
+                base = k * 3 + corner
+                px = points_px[int(idx)]
+                uv = points_norm[int(idx), :2]
+                verts[base] = (px[0], px[1], uv[0], uv[1], *bary[corner])
+        return verts
+
+    def _draw_mesh_panels(self, points_px: np.ndarray, points_norm: np.ndarray, triangles: np.ndarray):
+        verts = self._build_panel_geometry(points_px, points_norm, triangles)
+        if len(verts) == 0:
+            return
+        vbo = self.ctx.buffer(verts.tobytes())
+        vao = self.ctx.vertex_array(
+            self.panel_prog, [(vbo, "2f 2f 3f", "in_pos", "in_uv", "in_bary")])
+        self.panel_prog["u_color"].value = self.cfg.mesh_panel_color
+        self.panel_prog["u_alpha"].value = self.cfg.mesh_panel_alpha
+        self.panel_prog["u_grain_scale"].value = self.cfg.mesh_panel_grain_scale
+        self.panel_prog["u_edge_alpha"].value = self.cfg.mesh_panel_edge_alpha
+        vao.render(moderngl.TRIANGLES)
+        vao.release()
+        vbo.release()
 
     def _build_line_geometry(self, points_px: np.ndarray, edges: List[Tuple[int, int]],
                               color: Tuple[float, float, float], alpha: float,

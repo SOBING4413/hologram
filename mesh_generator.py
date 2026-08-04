@@ -64,6 +64,7 @@ class MeshGenerator:
             try:
                 tri = Delaunay(pts2d, qhull_options="QJ")  # QJ jitters to avoid precision issues
                 triangles = tri.simplices.astype(np.int32)
+                triangles = self._prune_long_triangles(points, triangles)
                 edges = self._unique_edges(triangles)
                 edges = self._prune_long_edges(points, edges)
             except (QhullError, Exception):
@@ -77,6 +78,24 @@ class MeshGenerator:
             "skeleton": skeleton,
             "hand_ranges": hand_ranges,
         }
+
+    def _prune_long_triangles(self, points: np.ndarray, triangles: np.ndarray) -> np.ndarray:
+        if self.max_edge_length <= 0 or len(triangles) == 0:
+            return triangles
+        max_len_sq = self.max_edge_length * self.max_edge_length
+        kept = []
+        for tri in triangles:
+            i0, i1, i2 = int(tri[0]), int(tri[1]), int(tri[2])
+            valid = True
+            for i, j in ((i0, i1), (i1, i2), (i2, i0)):
+                dx = float(points[i, 0] - points[j, 0])
+                dy = float(points[i, 1] - points[j, 1])
+                if dx * dx + dy * dy > max_len_sq:
+                    valid = False
+                    break
+            if valid:
+                kept.append((i0, i1, i2))
+        return np.asarray(kept, dtype=np.int32) if kept else np.zeros((0, 3), dtype=np.int32)
 
     def _prune_long_edges(self, points: np.ndarray, edges: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
         if self.max_edge_length <= 0:
