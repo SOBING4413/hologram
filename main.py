@@ -18,6 +18,8 @@ Controls:
     H         toggle HUD (FPS + per-point coordinates)
     C         toggle coordinate labels only (keeps FPS)
     M         mirror on/off
+    R         rotate camera 0/90/180/270 degrees
+    T         toggle vertical camera flip
     F         toggle One-Euro smoothing on/off (raw vs filtered)
 """
 
@@ -61,14 +63,14 @@ class App:
         # CAP_DSHOW opens noticeably faster and more reliably on Windows;
         # fall back to CAP_ANY (default backend) on other platforms.
         backend = cv2.CAP_DSHOW if platform.system() == "Windows" else cv2.CAP_ANY
-        self.cap = cv2.VideoCapture(0, backend)
+        self.cap = cv2.VideoCapture(cfg.camera_index, backend)
         if not self.cap.isOpened():
             # Retry once with the default backend in case CAP_DSHOW itself
             # is unavailable on this machine.
-            self.cap = cv2.VideoCapture(0, cv2.CAP_ANY)
+            self.cap = cv2.VideoCapture(cfg.camera_index, cv2.CAP_ANY)
         if not self.cap.isOpened():
             raise RuntimeError(
-                "Tidak bisa membuka webcam (index 0). Pastikan kamera "
+                f"Tidak bisa membuka webcam (index {cfg.camera_index}). Pastikan kamera "
                 "terhubung, tidak sedang dipakai aplikasi lain, dan izin "
                 "kamera untuk Python/terminal sudah diberikan."
             )
@@ -115,7 +117,10 @@ class App:
             detection_confidence=cfg.detection_confidence,
             tracking_confidence=cfg.tracking_confidence,
         )
-        self.mesh_gen = MeshGenerator(hand_connections=self.tracker.connections)
+        self.mesh_gen = MeshGenerator(
+            hand_connections=self.tracker.connections,
+            max_edge_length=cfg.max_mesh_edge_length,
+        )
         self.filter = LandmarkFilter(
             use_one_euro=cfg.smoothing_enabled,
             freq=cfg.one_euro_freq,
@@ -138,6 +143,10 @@ class App:
             self.cfg.show_coordinates = not self.cfg.show_coordinates
         elif key == glfw.KEY_M:
             self.cfg.mirror = not self.cfg.mirror
+        elif key == glfw.KEY_R:
+            self.cfg.camera_rotation = (self.cfg.camera_rotation + 90) % 360
+        elif key == glfw.KEY_T:
+            self.cfg.camera_flip_vertical = not self.cfg.camera_flip_vertical
         elif key == glfw.KEY_F:
             self.cfg.smoothing_enabled = not self.cfg.smoothing_enabled
             self.filter.use_one_euro = self.cfg.smoothing_enabled
@@ -147,6 +156,43 @@ class App:
             return
         self.width, self.height = width, height
         self.renderer.resize(width, height)
+
+
+    def _orient_frame(self, frame_bgr):
+        """Apply user-configurable camera orientation before tracking/rendering.
+
+        OpenCV delivers some webcam feeds rotated or upside down depending on
+        driver metadata. Keeping the correction here ensures MediaPipe landmarks
+        and the rendered background use the same coordinate system.
+        """
+        rotation = self.cfg.camera_rotation % 360
+        if rotation == 90:
+            frame_bgr = cv2.rotate(frame_bgr, cv2.ROTATE_90_CLOCKWISE)
+        elif rotation == 180:
+            frame_bgr = cv2.rotate(frame_bgr, cv2.ROTATE_180)
+        elif rotation == 270:
+            frame_bgr = cv2.rotate(frame_bgr, cv2.ROTATE_90_COUNTERCLOCKWISE)
+
+        if self.cfg.camera_flip_vertical:
+            frame_bgr = cv2.flip(frame_bgr, 0)
+        if self.cfg.mirror:
+            frame_bgr = cv2.flip(frame_bgr, 1)
+        return frame_bgr
+
+    @staticmethod
+    def _swap_mirrored_handedness(hands):
+        """Keep hand labels intuitive after horizontal mirroring.
+
+        MediaPipe classifies handedness from the image it receives. Because the
+        app tracks the already-mirrored image, the classifier label is reversed
+        from the user-facing mirror view. Swapping only Left/Right fixes HUD
+        labels and per-hand colors without touching landmark coordinates.
+        """
+        for hand in hands:
+            if hand.get("label") == "Left":
+                hand["label"] = "Right"
+            elif hand.get("label") == "Right":
+                hand["label"] = "Left"
 
     # ------------------------------------------------------------------ #
     def run(self):
@@ -158,8 +204,7 @@ class App:
                 if not ok:
                     continue
 
-                if self.cfg.mirror:
-                    frame_bgr = cv2.flip(frame_bgr, 1)
+                frame_bgr = self._orient_frame(frame_bgr)
 
                 if (frame_bgr.shape[1], frame_bgr.shape[0]) != (self.width, self.height):
                     frame_bgr = cv2.resize(frame_bgr, (self.width, self.height))
@@ -167,6 +212,8 @@ class App:
                 frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
 
                 hands = self.tracker.process(frame_rgb)
+                if self.cfg.mirror:
+                    self._swap_mirrored_handedness(hands)
 
                 active_labels = [h["label"] for h in hands]
                 self.filter.prune_missing(active_labels)
