@@ -114,8 +114,9 @@ class Renderer:
 
         # Standard alpha first for the frosted/glass-like filled mesh surface.
         self.ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
-        if self.cfg.mesh_panel_enabled and self.cfg.mesh_panel_alpha > 0.0 and len(mesh["triangles"]) > 0:
-            self._draw_mesh_panels(points_px, mesh["points"], mesh["triangles"])
+        panel_triangles = mesh.get("panel_triangles", mesh["triangles"])
+        if self.cfg.mesh_panel_enabled and self.cfg.mesh_panel_alpha > 0.0 and len(panel_triangles) > 0:
+            self._draw_mesh_panels(points_px, mesh["points"], panel_triangles)
 
         # Additive blending for subtle glowing hologram edges/elements.
         self.ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE

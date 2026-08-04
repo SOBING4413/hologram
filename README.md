@@ -8,8 +8,8 @@ Fitur:
 
 - Deteksi dua tangan sekaligus (kiri & kanan), 21 landmark per tangan.
 - Mesh dinamis transparan dari **triangulasi Delaunay** atas gabungan titik
-  kedua tangan, sekarang dirender sebagai panel segitiga/kaca bertekstur halus
-  dengan edge glow tipis — bukan lagi garis putih dominan seperti jaring laba-laba.
+  kedua tangan, sekarang area antar-tangan dirender sebagai panel segitiga/kaca
+  bertekstur halus dengan edge glow tipis — bukan seluruh permukaan tangan.
 - Skeleton per-tangan (tulang jari) berwarna berbeda kiri/kanan.
 - Titik landmark berupa dot glowing.
 - Efek **glow** dibuat lewat fragment shader (radial/linear falloff per
@@ -157,9 +157,11 @@ mulus dan konsisten di semua platform.
 satu awan titik, lalu menjalankan `scipy.spatial.Delaunay` sekali atas
 gabungan tersebut. Karena triangulasi dihitung atas gabungan titik, bidang
 segitiga secara alami akan menjembatani sisi-sisi tangan yang saling
-berdekatan. Renderer kemudian mengisi segitiga itu sebagai panel transparan
-bertekstur/noise halus dengan outline tipis, sehingga hasilnya lebih mirip
-lembaran hologram/kaca seperti contoh, bukan kumpulan garis putih.
+berdekatan. Renderer hanya mengisi segitiga yang menjembatani lebih dari satu
+tangan sebagai panel transparan bertekstur/noise halus dengan outline tipis.
+Segitiga internal pada satu tangan tidak diberi tekstur supaya efek panel baru
+muncul saat kedua tangan berhasil membentuk/"melempar" bidang objek seperti
+contoh, bukan menutupi seluruh tangan.
 
 ## Konfigurasi
 
@@ -210,9 +212,10 @@ one_euro_beta: float = 0.35         # makin besar -> makin responsif saat gerak 
 
 #### Sesudah penyempurnaan visual
 
-- Mesh sekarang diisi panel segitiga transparan dengan procedural grain/noise dan scanline halus dari shader GLSL.
+- Mesh sekarang diisi panel segitiga transparan dengan procedural grain/noise dan scanline halus dari shader GLSL, tetapi hanya untuk bidang penghubung antar-tangan.
 - Garis edge dibuat jauh lebih tipis dan transparan, hanya sebagai outline/glow pendukung agar bentuk tetap terbaca.
 - Segitiga Delaunay yang terlalu besar ikut dipangkas, bukan hanya edge-nya, supaya panel tidak membentang liar saat tangan terlalu jauh.
+- Tekstur tidak lagi diterapkan pada segitiga internal satu tangan; efek panel muncul hanya pada permukaan objek/bridge antar-tangan.
 
 ## Troubleshooting
 
