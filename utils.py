@@ -84,6 +84,9 @@ class Config:
     capture_height: int = 720
     max_hands: int = 2
     mirror: bool = True
+    camera_index: int = 0
+    camera_rotation: int = 0  # degrees: 0, 90, 180, 270
+    camera_flip_vertical: bool = False
 
     # Detection
     detection_confidence: float = 0.6
@@ -105,6 +108,7 @@ class Config:
     mesh_alpha: float = 0.20
     mesh_line_width_px: float = 1.4
     mesh_glow_power: float = 3.0
+    max_mesh_edge_length: float = 0.38  # normalized screen distance; 0 disables pruning
 
     # Skeleton (per-hand bones)
     skeleton_alpha: float = 0.55
@@ -121,6 +125,7 @@ class Config:
     # HUD / text overlay
     show_hud: bool = True
     show_coordinates: bool = True
+    show_gesture_metrics: bool = True
     hud_font_scale: float = 0.38
     hud_thickness: int = 1
 

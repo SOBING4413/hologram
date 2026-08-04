@@ -142,9 +142,11 @@ class Renderer:
     # Internal drawing helpers
     # ------------------------------------------------------------------ #
     def _draw_background(self, frame_rgb: np.ndarray):
-        # OpenGL textures are bottom-left origin; flip vertically once here.
-        flipped = np.flipud(np.ascontiguousarray(frame_rgb))
-        self.cam_tex.write(flipped.tobytes())
+        # Keep row order consistent with the fullscreen quad UVs. The quad maps
+        # v=0 to the top of the window, so uploading the camera frame as-is
+        # prevents the webcam from appearing upside down on screen.
+        frame = np.ascontiguousarray(frame_rgb)
+        self.cam_tex.write(frame.tobytes())
         self.cam_tex.use(location=0)
         self.bg_prog["u_tex"].value = 0
         self.bg_prog["u_brightness"].value = self.cfg.background_brightness
@@ -273,6 +275,8 @@ class Renderer:
         # FPS + general info, top-left
         cv2.putText(canvas, f"FPS: {fps:5.1f}", (16, 30), font, 0.7, white, 2, cv2.LINE_AA)
         cv2.putText(canvas, f"Hands detected: {len(hands)}", (16, 56), font, 0.55, dim, 1, cv2.LINE_AA)
+        cv2.putText(canvas, f"Mirror: {self.cfg.mirror}  Rot: {self.cfg.camera_rotation}  VFlip: {self.cfg.camera_flip_vertical}",
+                    (16, 82), font, 0.48, dim, 1, cv2.LINE_AA)
 
         # Per-hand label near the wrist
         for label, start, end in hand_ranges:
@@ -281,6 +285,9 @@ class Renderer:
             wrist = points_px[start]
             cv2.putText(canvas, label, (int(wrist[0]) - 20, int(wrist[1]) + 34),
                         font, 0.6, white, 2, cv2.LINE_AA)
+
+        if self.cfg.show_gesture_metrics:
+            self._draw_gesture_metrics(canvas, points_px, hand_ranges, font, dim)
 
         # Per-point normalized coordinates
         if self.cfg.show_coordinates:
@@ -293,8 +300,24 @@ class Renderer:
                                 font, self.cfg.hud_font_scale, dim,
                                 self.cfg.hud_thickness, cv2.LINE_AA)
 
-        flipped = np.flipud(canvas)
-        self.overlay_tex.write(np.ascontiguousarray(flipped).tobytes())
+        self.overlay_tex.write(np.ascontiguousarray(canvas).tobytes())
         self.overlay_tex.use(location=0)
         self.overlay_prog["u_tex"].value = 0
         self._overlay_vao.render(moderngl.TRIANGLES)
+
+
+    def _draw_gesture_metrics(self, canvas, points_px, hand_ranges, font, color):
+        """Draw simple pinch-distance metrics for rapid gesture debugging."""
+        y = 108
+        for label, start, end in hand_ranges:
+            # MediaPipe landmarks: 4 = thumb tip, 8 = index-finger tip.
+            if end - start <= 8:
+                continue
+            thumb = points_px[start + 4]
+            index = points_px[start + 8]
+            dist_px = float(np.linalg.norm(thumb - index))
+            cv2.line(canvas, tuple(thumb.astype(int)), tuple(index.astype(int)),
+                     (255, 255, 255, 110), 1, cv2.LINE_AA)
+            cv2.putText(canvas, f"{label} pinch: {dist_px:5.1f}px",
+                        (16, y), font, 0.48, color, 1, cv2.LINE_AA)
+            y += 22

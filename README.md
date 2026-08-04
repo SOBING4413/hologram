@@ -18,6 +18,9 @@ Fitur:
   gerakan) — bisa dimatikan (tekan `F`) untuk membandingkan dengan data
   mentah.
 - HUD: FPS + label tangan + koordinat (x, y) ternormalisasi tiap titik.
+- Koreksi orientasi kamera: mirror, rotasi 0/90/180/270, dan vertical flip untuk mengatasi kamera yang tampil terbalik.
+- Debug gesture sederhana: jarak pinch ibu jari–telunjuk ditampilkan di HUD sebagai dasar pengembangan gesture recognition.
+- Mesh lebih stabil dengan pemangkasan edge Delaunay yang terlalu panjang agar tidak muncul garis liar ketika tangan berjauhan.
 - Target 30–60 FPS pada laptop modern (GPU terintegrasi sudah cukup, karena
   geometri sangat ringan: maksimum 42 titik).
 
@@ -117,12 +120,14 @@ akan muncul menampilkan efek hologram secara real-time.
 | `H`         | Toggle HUD (FPS + koordinat)                                 |
 | `C`         | Toggle label koordinat saja (FPS tetap tampil)               |
 | `M`         | Toggle mirror (flip horizontal)                              |
+| `R`         | Putar kamera 0° → 90° → 180° → 270°                         |
+| `T`         | Toggle vertical flip untuk webcam yang tampil terbalik        |
 | `F`         | Toggle One Euro Filter (bandingkan smoothed vs raw landmark) |
 
 ## Cara Kerja (Arsitektur Pipeline)
 
 ```
-Webcam (BGR) → mirror + RGB
+Webcam (BGR) → orientasi kamera (rotasi/flip/mirror) + RGB
              → HandTracker.process()        [MediaPipe: hingga 2 tangan, 21 landmark]
              → LandmarkFilter.smooth_hand() [One Euro Filter per sumbu x,y,z]
              → MeshGenerator.build()        [Delaunay triangulation (scipy) + skeleton]
@@ -166,11 +171,31 @@ Beberapa yang paling sering ingin diubah:
 ```python
 mesh_alpha: float = 0.20            # transparansi mesh wireframe (~20%)
 mesh_glow_power: float = 3.0        # makin besar -> glow makin tipis/fokus
+max_mesh_edge_length: float = 0.38    # pangkas garis Delaunay yang terlalu panjang
 skeleton_line_width_px: float = 3.2
 point_radius_px: float = 6.5
 one_euro_mincutoff: float = 1.2     # makin kecil -> makin halus tapi makin lag
 one_euro_beta: float = 0.35         # makin besar -> makin responsif saat gerak cepat
 ```
+
+
+## Changelog Perbaikan
+
+### Sebelum diperbaiki
+
+- Frame kamera dan HUD dapat tampil terbalik secara vertikal karena tekstur OpenGL diunggah dengan `flipud` sementara koordinat UV fullscreen quad sudah memetakan `v=0` ke bagian atas layar.
+- Tidak ada kontrol runtime untuk memperbaiki orientasi webcam jika driver mengirim frame dalam posisi 90°, 180°, atau upside down.
+- Saat mode mirror aktif, label handedness dari MediaPipe dapat terasa tertukar dari sudut pandang pengguna karena MediaPipe memproses frame yang sudah dicerminkan.
+- Mesh Delaunay bisa menggambar edge panjang yang terlihat seperti garis liar ketika titik tangan berjauhan atau pose sangat melebar.
+- HUD hanya menampilkan FPS, jumlah tangan, label, dan koordinat; belum ada metrik gesture cepat untuk membantu pengembangan fitur interaksi.
+
+### Sesudah diperbaiki
+
+- Upload tekstur background dan HUD dibuat konsisten dengan UV renderer sehingga tampilan tidak lagi upside down.
+- Ditambahkan pipeline orientasi kamera terpadu sebelum tracking/rendering: rotasi 0/90/180/270 (`R`), vertical flip (`T`), dan mirror (`M`).
+- Label `Left`/`Right` otomatis ditukar saat mirror aktif supaya warna dan label tangan tetap intuitif pada tampilan cermin.
+- Mesh Delaunay sekarang memangkas edge yang melebihi `Config.max_mesh_edge_length`, sehingga efek hologram lebih rapi dan stabil.
+- HUD menampilkan status orientasi kamera dan metrik pinch ibu jari–telunjuk per tangan untuk mempercepat eksperimen gesture recognition.
 
 ## Troubleshooting
 
@@ -191,6 +216,7 @@ one_euro_beta: float = 0.35         # makin besar -> makin responsif saat gerak 
   (terutama macOS: System Settings → Privacy & Security → Camera).
 - **Jendela gagal dibuat / error OpenGL 3.3**: perbarui driver GPU. Di Linux,
   pastikan driver GPU (Mesa/NVIDIA) mendukung OpenGL 3.3 core profile.
+- **Kamera masih terbalik / menyamping**: gunakan tombol `R` untuk memutar 90° bertahap, `T` untuk vertical flip, dan `M` untuk mirror horizontal. Status orientasi aktif ditampilkan di HUD.
 - **FPS rendah**: turunkan `capture_width`/`capture_height` di `Config`
   (mis. 960x540), atau set `glfw.swap_interval(0)` di `main.py` untuk
   menonaktifkan vsync saat benchmarking.
