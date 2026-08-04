@@ -1,0 +1,18 @@
+# Hand Mesh Hologram - pinned, tested-compatible versions
+#
+# PENTING: mediapipe==0.10.9 (dan mp.solutions.hands yang dipakai proyek
+# ini) hanya stabil di Python 3.9 - 3.11. Python 3.12+ BELUM didukung
+# secara resmi oleh rilis mediapipe ini dan akan menyebabkan
+# "AttributeError: module 'mediapipe' has no attribute 'solutions'".
+#
+# Cek versi Python Anda:   python --version
+# Kalau bukan 3.9-3.11, jalankan setup.ps1 (Windows) / setup.sh (Linux/macOS)
+# untuk membuatkan virtual environment dengan Python yang benar secara
+# otomatis, atau lihat README.md.
+
+numpy==1.26.4
+opencv-python==4.10.0.84
+mediapipe==0.10.9
+scipy==1.11.4
+moderngl==5.10.0
+glfw==2.7.0
